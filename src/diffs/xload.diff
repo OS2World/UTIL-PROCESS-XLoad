@@ -1,0 +1,174 @@
+diff -c -r -N xload.orig/get_os2load.c xload/get_os2load.c
+*** xload.orig/get_os2load.c	Thu Jan  1 00:00:00 1970
+--- xload/get_os2load.c	Sun May 10 01:48:46 1998
+***************
+*** 0 ****
+--- 1,48 ----
++ #define INCL_BASE
++ #include <os2.h>
++ #include <stdio.h>
++ #include <stdlib.h>
++ #include <string.h>
++ #include "perfutil.h"
++ #include <X11/Xos.h>
++ #include <X11/Intrinsic.h>
++ 
++ void InitLoadPoint()
++ {
++ }
++ 
++ #define LL2F(high, low) (4294967296.0*(high)+(low))
++ 
++ void GetLoadPoint( w, closure, call_data )
++      Widget	w;		/* unused */
++      caddr_t	closure;	/* unused */
++      caddr_t	call_data;	/* pointer to (double) return value */
++ {
++     APIRET        rc;
++     static int    iter = 0;
++     double        ts_val, ts_delta, busy_val;
++     static double ts_val_prev, busy_val_prev;
++     CPUUTIL       CPUUtil;
++     double *loadavg = (double *)call_data;
++ 
++     rc = DosPerfSysCall(CMD_KI_RDCNT,(ULONG) &CPUUtil,0,0);
++     if (rc) {
++         fprintf(stderr, "DosPerfSysCall(): CMD_KI_RDCNT failed rc = %d\n",rc);
++         exit(1);
++     }
++     ts_val = LL2F(CPUUtil.ulTimeHigh, CPUUtil.ulTimeLow);
++     busy_val = LL2F(CPUUtil.ulBusyHigh, CPUUtil.ulBusyLow);
++ 
++     if (iter != 0) {
++       ts_delta = ts_val - ts_val_prev;
++ /* multiply by 2.0 to see division of 50% load */
++       *loadavg = 2.0*(busy_val - busy_val_prev)/ts_delta;
++     }
++     else {
++       *loadavg = 0.0;
++       iter = 1;
++     }
++ 
++     ts_val_prev = ts_val;
++     busy_val_prev = busy_val;
++ }
+diff -c -r -N xload.orig/Imakefile xload/Imakefile
+*** xload.orig/Imakefile	Mon Mar  2 19:58:06 1998
+--- xload/Imakefile	Sun May 10 01:37:02 1998
+***************
+*** 1,6 ****
+--- 1,10 ----
+  XCOMM $XConsortium: Imakefile /main/30 1996/03/09 09:37:57 kaleb $
+  XCOMM $XFree86: contrib/programs/xload/Imakefile,v 3.4.2.3 1998/02/20 15:14:00 robin Exp $
++ #ifndef OS2Architecture
+          DEPLIBS = XawClientDepLibs
++ #else
++         DEPLIBS = XawClientDepLibs perfapi.a
++ #endif
+  LOCAL_LIBRARIES = XawClientLibs
+  #ifdef i386MachArchitecture
+    SYS_LIBRARIES = -lsys
+***************
+*** 28,40 ****
+  #if defined(i386BsdArchitecture) && !defined(NetBSDArchitecture) && !defined(OpenBSDArchitecture)
+    SYS_LIBRARIES = -lutil -lkvm
+  #endif
+             SRCS = xload.c get_load.c
+             OBJS = xload.o get_load.o
+   OSMAJORVERSION = OSMajorVersion
+   OSMINORVERSION = OSMinorVersion
+        DEFINES = -DOSMAJORVERSION=$(OSMAJORVERSION) -DOSMINORVERSION=$(OSMINORVERSION) 
+  
+! AllTarget(xload)
+  NormalProgramTarget(xload,$(OBJS),$(DEPLIBS),$(LOCAL_LIBRARIES),NullParameter)
+  
+  #if defined(OSF1Architecture) || defined(NetBSDArchitecture) || (defined(FreeBSDArchitecture) && OSMajorVersion > 1) || defined(OpenBSDArchitecture)
+--- 32,50 ----
+  #if defined(i386BsdArchitecture) && !defined(NetBSDArchitecture) && !defined(OpenBSDArchitecture)
+    SYS_LIBRARIES = -lutil -lkvm
+  #endif
++ #ifndef OS2Architecture
+             SRCS = xload.c get_load.c
+             OBJS = xload.o get_load.o
++ #else
++            SRCS = xload.c get_os2load.c
++            OBJS = xload.o get_os2load.o
++   SYS_LIBRARIES = -L. -lperfapi
++ #endif
+   OSMAJORVERSION = OSMajorVersion
+   OSMINORVERSION = OSMinorVersion
+        DEFINES = -DOSMAJORVERSION=$(OSMAJORVERSION) -DOSMINORVERSION=$(OSMINORVERSION) 
+  
+! AllTarget(ProgramTargetName(xload))
+  NormalProgramTarget(xload,$(OBJS),$(DEPLIBS),$(LOCAL_LIBRARIES),NullParameter)
+  
+  #if defined(OSF1Architecture) || defined(NetBSDArchitecture) || (defined(FreeBSDArchitecture) && OSMajorVersion > 1) || defined(OpenBSDArchitecture)
+***************
+*** 46,50 ****
+--- 56,65 ----
+  InstallAppDefaults(XLoad)
+  
+  InstallManPage(xload,$(MANDIR))
++ 
++ #ifdef OS2Architecture
++ perfapi.a: perfapi.imp
++ 	emximp -o $@ $<
++ #endif
+  
+  DependTarget()
+diff -c -r -N xload.orig/perfapi.imp xload/perfapi.imp
+*** xload.orig/perfapi.imp	Thu Jan  1 00:00:00 1970
+--- xload/perfapi.imp	Tue Mar 17 20:49:36 1998
+***************
+*** 0 ****
+--- 1 ----
++ DosPerfSysCall		doscalls 976 4
+diff -c -r -N xload.orig/perfutil.h xload/perfutil.h
+*** xload.orig/perfutil.h	Thu Jan  1 00:00:00 1970
+--- xload/perfutil.h	Tue Mar 17 19:50:10 1998
+***************
+*** 0 ****
+--- 1,43 ----
++ #ifdef __cplusplus
++   extern "C" {
++ #endif
++ 
++ #ifndef  PERFCALL_INCLUDED
++ #define  PERFCALL_INCLUDED
++ 
++ /*
++    DosPerfSysCall Function Prototype
++ */
++ 
++ /* The  ordinal for DosPerfSysCall (in BSEORD.H) */
++ /* is defined as ORD_DOS32PERFSYSCALL         */
++ 
++ APIRET APIENTRY DosPerfSysCall(ULONG ulCommand, ULONG ulParm1, ULONG ulParm2, ULONG ulParm3);
++ 
++ /***
++  *
++  * CPU Utilization
++  * ---------------
++  *
++  **/
++ 
++ #define   CMD_KI_RDCNT    (0x63)
++ 
++  typedef struct _CPUUTIL {
++    ULONG ulTimeLow;     /* Low 32 bits of time stamp      */
++    ULONG ulTimeHigh;    /* High 32 bits of time stamp     */
++    ULONG ulIdleLow;     /* Low 32 bits of idle time       */
++    ULONG ulIdleHigh;    /* High 32 bits of idle time      */
++    ULONG ulBusyLow;     /* Low 32 bits of busy time       */
++    ULONG ulBusyHigh;    /* High 32 bits of busy time      */
++    ULONG ulIntrLow;     /* Low 32 bits of interrupt time  */
++    ULONG ulIntrHigh;    /* High 32 bits of interrupt time */
++   } CPUUTIL;
++ 
++  typedef CPUUTIL *PCPUUTIL;
++ 
++ #endif
++ 
++ #ifdef __cplusplus
++   }
++ #endif
